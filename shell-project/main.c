@@ -59,8 +59,15 @@ __attribute__((unused))
 static int tokenize(char *line, char *tokens[]) {
     // TODO (Checkpoint 1)
     int count = 0;
-    
-    return 0;
+    char *saveptr = NULL;
+    const char *delims = " \t\n\r\f\v";
+    char *token = strtok_r(line, delims, &saveptr);
+
+    while (token != NULL && count < MAX_TOKENS) {
+        tokens[count++] = token;
+        token = strtok_r(NULL, delims, &saveptr);
+    }
+    return count;
 }
 
 /**
