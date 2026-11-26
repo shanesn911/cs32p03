@@ -80,7 +80,50 @@ static int tokenize(char *line, char *tokens[]) {
 __attribute__((unused))
 static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) {
     // TODO (Checkpoint 1)
-    return -1;
+    if (num_tokens == 0) {
+        return -1;
+    }
+    int command_count = 0;
+    int arg_index = 0;
+    commands[command_count].input_file = NULL;
+    commands[command_count].output_file = NULL;
+    for (int i = 0; i < num_tokens; i++) {
+        if (strcmp(tokens[i], "|") == 0) {
+            if (arg_index == 0) {
+                return -1; 
+            }
+            commands[command_count].argv[arg_index] = NULL; 
+            command_count++;
+            if (command_count >= MAX_COMMANDS) {
+                return -1; 
+            }
+            arg_index = 0;
+            commands[command_count].input_file = NULL;
+            commands[command_count].output_file = NULL;
+
+        } else if (strcmp(tokens[i], "<") == 0) {
+            if (i + 1 >= num_tokens || commands[command_count].input_file != NULL) {
+                return -1; 
+            }
+
+            commands[command_count].input_file = tokens[++i];
+        } else if (strcmp(tokens[i], ">") == 0) {
+            if (i + 1 >= num_tokens || commands[command_count].output_file != NULL) {
+                return -1; 
+            }
+
+            commands[command_count].output_file = tokens[++i];
+        } else {
+
+            commands[command_count].argv[arg_index++] = tokens[i];
+        }
+    }
+    if (arg_index == 0) {
+        return -1;
+    }
+    commands[command_count].argv[arg_index] = NULL;
+    return command_count + 1;
+
 }
 
 /**
