@@ -137,7 +137,6 @@ static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) 
  *
  * Returns the child's process ID, or -1 if no child was started.
  */
-__attribute__((unused))
 static pid_t run_command(command_t *cmd, int in_fd, int out_fd) {
     // TODO (Checkpoints 2 and 3)
 
@@ -208,6 +207,72 @@ static pid_t run_command(command_t *cmd, int in_fd, int out_fd) {
  */
 static void run_pipeline(command_t commands[], int num_commands) {
     // TODO (Checkpoints 2 and 4)
+    pid_t pids[MAX_COMMANDS];
+    int prev_read_fd = STDIN_FILENO;
+
+    for (int i = 0; i < num_commands; i++) {
+        int pipefd[2] = {-1, -1};
+        int out_fd = STDOUT_FILENO;
+
+        if (i < num_commands - 1) {
+            if (pipe(pipefd) < 0) {
+                perror("pipe");
+                if (prev_read_fd != STDIN_FILENO) {
+                    close(prev_read_fd);
+                }
+                for (int j = 0; j < i; j++) {
+                    if (pids[j] > 0) {
+                        waitpid(pids[j], NULL, 0);
+                    }
+                }
+                return;
+            }
+            fcntl(pipefd[0], F_SETFD, FD_CLOEXEC);
+            out_fd = pipefd[1];
+        }
+
+        pids[i] = run_command(&commands[i], prev_read_fd, out_fd);
+
+        if (prev_read_fd != STDIN_FILENO) {
+            close(prev_read_fd);
+        }
+        if (out_fd != STDOUT_FILENO) {
+            close(out_fd);
+        }
+
+        if (pids[i] < 0) {
+            if (pipefd[0] != -1) {
+                close(pipefd[0]);
+            }
+            for (int j = 0; j < i; j++) {
+                if (pids[j] > 0) {
+                    int status;
+                    waitpid(pids[j], &status, 0);
+                    if (WIFEXITED(status)) {
+                        printf("exit status: %d\n", WEXITSTATUS(status));
+                    } else if (WIFSIGNALED(status)) {
+                        printf("exit status: %d\n", 128 + WTERMSIG(status));
+                    }
+                }
+            }
+            return;
+        }
+
+        prev_read_fd = (i < num_commands - 1) ? pipefd[0] : STDIN_FILENO;
+    }
+
+    for (int i = 0; i < num_commands; i++) {
+        if (pids[i] > 0) {
+            int status;
+            if (waitpid(pids[i], &status, 0) >= 0) {
+                if (WIFEXITED(status)) {
+                    printf("exit status: %d\n", WEXITSTATUS(status));
+                } else if (WIFSIGNALED(status)) {
+                    printf("exit status: %d\n", 128 + WTERMSIG(status));
+                }
+            }
+        }
+    }
 }
 
 /**
