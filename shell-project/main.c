@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char **environ;
 
 /** The longest input line is 100 characters, plus 1 for the '\0' */
 #define MAX_LINE 101
@@ -55,7 +56,6 @@ typedef struct {
  * __attribute__((unused)) stops the compiler from warning that a function
  * is never called. You can remove it once you call the function.
  */
-__attribute__((unused))
 static int tokenize(char *line, char *tokens[]) {
     // TODO (Checkpoint 1)
     int count = 0;
@@ -77,7 +77,11 @@ static int tokenize(char *line, char *tokens[]) {
  * Returns the number of commands, or -1 if the tokens are not a valid
  * pipeline.
  */
-__attribute__((unused))
+
+static int is_operator(const char *tok) {
+    return strcmp(tok, "<") == 0 || strcmp(tok, ">") == 0 || strcmp(tok, "|") == 0;
+}
+
 static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) {
     // TODO (Checkpoint 1)
     if (num_tokens == 0) {
@@ -85,8 +89,8 @@ static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) 
     }
     int command_count = 0;
     int arg_index = 0;
-    commands[command_count].input_file = NULL;
-    commands[command_count].output_file = NULL;
+    commands[0].input_file = NULL;
+    commands[0].output_file = NULL;
     for (int i = 0; i < num_tokens; i++) {
         if (strcmp(tokens[i], "|") == 0) {
             if (arg_index == 0) {
@@ -102,13 +106,13 @@ static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) 
             commands[command_count].output_file = NULL;
 
         } else if (strcmp(tokens[i], "<") == 0) {
-            if (i + 1 >= num_tokens || commands[command_count].input_file != NULL) {
+            if (i + 1 >= num_tokens || is_operator(tokens[i + 1]) || commands[command_count].input_file != NULL) {
                 return -1; 
             }
 
             commands[command_count].input_file = tokens[++i];
         } else if (strcmp(tokens[i], ">") == 0) {
-            if (i + 1 >= num_tokens || commands[command_count].output_file != NULL) {
+            if (i + 1 >= num_tokens || is_operator(tokens[i + 1]) || commands[command_count].output_file != NULL) {
                 return -1; 
             }
 
@@ -136,7 +140,65 @@ static int parse_pipeline(char *tokens[], int num_tokens, command_t commands[]) 
 __attribute__((unused))
 static pid_t run_command(command_t *cmd, int in_fd, int out_fd) {
     // TODO (Checkpoints 2 and 3)
-    return -1;
+
+    
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return -1;
+    }
+    if (pid == 0) {
+        if (cmd->input_file != NULL) {
+            int fd = open(cmd->input_file, O_RDONLY);
+            if (fd < 0) {
+                perror(cmd->input_file);
+                _exit(1);
+            }
+            if (dup2(fd, STDIN_FILENO) < 0) {
+                perror("dup2");
+                close(fd);
+                _exit(1);
+            }
+            close(fd);
+        } else if (in_fd != STDIN_FILENO) {
+            if(dup2(in_fd, STDIN_FILENO) < 0) {
+                perror("dup2");
+                _exit(1);
+            }
+        }
+
+        if (cmd->output_file != NULL) {
+            int fd = open(cmd->output_file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (fd < 0) {
+                perror(cmd->output_file);
+                _exit(1);
+            }
+            if (dup2(fd, STDOUT_FILENO) < 0) {
+                perror("dup2");
+                close(fd);
+                _exit(1);
+            }
+            close(fd);
+        } else if (out_fd != STDOUT_FILENO) {
+            if (dup2(out_fd, STDOUT_FILENO) < 0) {
+                perror("dup2");
+                _exit(1);
+            }
+        }
+
+        if (in_fd != STDIN_FILENO) {
+            close(in_fd);
+        }
+        if (out_fd != STDOUT_FILENO) {
+            close(out_fd);
+        }
+
+        execve(cmd->argv[0], cmd->argv, environ);
+        perror(cmd->argv[0]);
+        _exit(127);
+    }
+    
+    return pid;
 }
 
 /**
@@ -144,7 +206,6 @@ static pid_t run_command(command_t *cmd, int in_fd, int out_fd) {
  * standard output connected to the next command's standard input. Then
  * waits for all of them and prints each one's exit status, in order.
  */
-__attribute__((unused))
 static void run_pipeline(command_t commands[], int num_commands) {
     // TODO (Checkpoints 2 and 4)
 }
@@ -157,10 +218,26 @@ static void run_pipeline(command_t commands[], int num_commands) {
 static void parse_and_run_command(char *line) {
     // TODO (Checkpoint 1): this is not the correct way to check for the
     // exit command. For example, the line "  exit  " should also exit.
-    if (strcmp(line, "exit") == 0) {
+    char *tokens[MAX_TOKENS];
+    int num_tokens = tokenize(line, tokens);
+
+    if(num_tokens == 0) {
+        fprintf(stderr, "Invalid command\n");
+        return;
+    }
+
+    if (num_tokens == 1 && strcmp(tokens[0], "exit") == 0) {
         exit(0);
     }
-    fprintf(stderr, "Not implemented.\n");
+    
+    command_t commands[MAX_COMMANDS];
+    int num_commands = parse_pipeline(tokens, num_tokens, commands);
+    if (num_commands < 0) {
+        fprintf(stderr, "Invalid command\n");
+        return;
+    }
+
+    run_pipeline(commands, num_commands);
 }
 
 int main(void) {
